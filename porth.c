@@ -39,6 +39,10 @@ typedef struct porth_parser {
     porth_token next_token;
 } porth_parser;
 
+typedef struct porth_compile_state {
+    int dummy;
+} porth_compile_state;
+
 void porth_vector_ensure_capacity(void** items, int64_t element_size, int64_t capacity, int64_t minimum_capacity) {
     assert(items != NULL);
     assert(element_size > 0);
@@ -136,35 +140,216 @@ void porth_arena_destroy(porth_arena* arena) {
 
 const char* porth_token_kind_to_cstring(porth_token_kind kind) {
     switch (kind) {
-        default: return "<unknown>";
-        case PORTH_TK_INVALID: return "INVALID";
-        case PORTH_TK_EOF: return "EOF";
-        case PORTH_TK_INT: return "INT";
-        case PORTH_TK_WORD: return "WORD";
-        case PORTH_TK_IF: return "IF";
-        case PORTH_TK_IFSTAR: return "IFSTAR";
-        case PORTH_TK_ELSE: return "ELSE";
-        case PORTH_TK_END: return "END";
-        case PORTH_TK_WHILE: return "WHILE";
-        case PORTH_TK_DO: return "DO";
-        case PORTH_TK_INCLUDE: return "INCLUDE";
-        case PORTH_TK_MEMORY: return "MEMORY";
-        case PORTH_TK_PROC: return "PROC";
-        case PORTH_TK_CONST: return "CONST";
-        case PORTH_TK_OFFSET: return "OFFSET";
-        case PORTH_TK_RESET: return "RESET";
-        case PORTH_TK_ASSERT: return "ASSERT";
-        case PORTH_TK_IN: return "IN";
-        case PORTH_TK_BIKESHEDDER: return "BIKESHEDDER";
-        case PORTH_TK_INLINE: return "INLINE";
-        case PORTH_TK_HERE: return "HERE";
-        case PORTH_TK_ADDR_OF: return "ADDR_OF";
-        case PORTH_TK_CALL_LIKE: return "CALL_LIKE";
-        case PORTH_TK_LET: return "LET";
-        case PORTH_TK_PEEK: return "PEEK";
-        case PORTH_TK_STR: return "STR";
-        case PORTH_TK_CSTR: return "CSTR";
-        case PORTH_TK_CHAR: return "CHAR";
+        default: assert(false && "unreachable"); return "<unknown>";
+        case PORTH_TK_INVALID: return "<invalid>";
+        case PORTH_TK_EOF: return "<eof>";
+        case PORTH_TK_INT: return "<int>";
+        case PORTH_TK_WORD: return "<word>";
+        case PORTH_TK_IF: return "if";
+        case PORTH_TK_IFSTAR: return "if*";
+        case PORTH_TK_ELSE: return "else";
+        case PORTH_TK_END: return "end";
+        case PORTH_TK_WHILE: return "while";
+        case PORTH_TK_DO: return "do";
+        case PORTH_TK_INCLUDE: return "include";
+        case PORTH_TK_MEMORY: return "memory";
+        case PORTH_TK_PROC: return "proc";
+        case PORTH_TK_CONST: return "const";
+        case PORTH_TK_OFFSET: return "offset";
+        case PORTH_TK_RESET: return "reset";
+        case PORTH_TK_ASSERT: return "assert";
+        case PORTH_TK_IN: return "in";
+        case PORTH_TK_BIKESHEDDER: return "--";
+        case PORTH_TK_INLINE: return "inline";
+        case PORTH_TK_HERE: return "here";
+        case PORTH_TK_ADDR_OF: return "addr-of";
+        case PORTH_TK_CALL_LIKE: return "call-like";
+        case PORTH_TK_LET: return "let";
+        case PORTH_TK_PEEK: return "peek";
+        case PORTH_TK_STR: return "str";
+        case PORTH_TK_CSTR: return "cstr";
+        case PORTH_TK_CHAR: return "char";
+    }
+}
+
+const char* porth_token_kind_to_human_string(porth_token_kind kind, bool plural) {
+    switch (kind) {
+        default: assert(false && "unreachable"); return "<unknown>";
+        case PORTH_TK_INT: return plural ? "integers" : "an integer";
+        case PORTH_TK_WORD: return plural ? "words" : "a word";
+        case PORTH_TK_STR: return plural ? "strings" : "a string";
+        case PORTH_TK_CSTR: return plural ? "C-style strings" : "a C-Style string";
+        case PORTH_TK_CHAR: return plural ? "characters" : "a character";
+    }
+}
+
+const char* porth_datatype_to_cstring(porth_datatype datatype) {
+    switch (datatype) {
+        default: assert(false && "unreachable"); return "<unknown>";
+        case PORTH_DATATYPE_INT: return "int";
+        case PORTH_DATATYPE_PTR: return "ptr";
+        case PORTH_DATATYPE_BOOL: return "bool";
+        case PORTH_DATATYPE_ADDR: return "addr";
+    }
+}
+
+static struct {
+    porth_intrinsic intrinsic;
+    porth_string_view image;
+} intrinsic_names[] = {
+    { INTRINSIC_PLUS, { "+", 1 } },
+    { INTRINSIC_MINUS, { "-", 1 } },
+    { INTRINSIC_MUL, { "*", 1 } },
+    { INTRINSIC_DIVMOD, { "divmod", 6 } },
+    { INTRINSIC_IDIVMOD, { "idivmod", 7 } },
+    { INTRINSIC_MAX, { "max", 3 } },
+    { INTRINSIC_PRINT, { "print", 5 } },
+    { INTRINSIC_EQ, { "=", 1 } },
+    { INTRINSIC_GT, { ">", 1 } },
+    { INTRINSIC_LT, { "<", 1 } },
+    { INTRINSIC_GE, { ">=", 2 } },
+    { INTRINSIC_LE, { "<=", 2 } },
+    { INTRINSIC_NE, { "!=", 2 } },
+    { INTRINSIC_SHR, { "shr", 3 } },
+    { INTRINSIC_SHL, { "shl", 3 } },
+    { INTRINSIC_OR, { "or", 2 } },
+    { INTRINSIC_AND, { "and", 3 } },
+    { INTRINSIC_NOT, { "not", 3 } },
+    { INTRINSIC_DUP, { "dup", 3 } },
+    { INTRINSIC_SWAP, { "swap", 4 } },
+    { INTRINSIC_DROP, { "drop", 4 } },
+    { INTRINSIC_OVER, { "over", 4 } },
+    { INTRINSIC_ROT, { "rot", 3 } },
+    { INTRINSIC_STORE8, { "!8", 2 } },
+    { INTRINSIC_LOAD8, { "@8", 2 } },
+    { INTRINSIC_STORE16, { "!16", 3 } },
+    { INTRINSIC_LOAD16, { "@16", 3 } },
+    { INTRINSIC_STORE32, { "!32", 3 } },
+    { INTRINSIC_LOAD32, { "@32", 3 } },
+    { INTRINSIC_STORE64, { "!64", 3 } },
+    { INTRINSIC_LOAD64, { "@64", 3 } },
+    { INTRINSIC_CAST_PTR, { "cast(ptr)", 9 } },
+    { INTRINSIC_CAST_INT, { "cast(int)", 9 } },
+    { INTRINSIC_CAST_BOOL, { "cast(bool)", 10 } },
+    { INTRINSIC_CAST_ADDR, { "cast(addr)", 10 } },
+    { INTRINSIC_ARGC, { "argc", 4 } },
+    { INTRINSIC_ARGV, { "argv", 4 } },
+    { INTRINSIC_ENVP, { "envp", 4 } },
+    { INTRINSIC_SYSCALL0, { "syscall0", 8 } },
+    { INTRINSIC_SYSCALL1, { "syscall1", 8 } },
+    { INTRINSIC_SYSCALL2, { "syscall2", 8 } },
+    { INTRINSIC_SYSCALL3, { "syscall3", 8 } },
+    { INTRINSIC_SYSCALL4, { "syscall4", 8 } },
+    { INTRINSIC_SYSCALL5, { "syscall5", 8 } },
+    { INTRINSIC_SYSCALL6, { "syscall6", 8 } },
+    { INTRINSIC_QQQ, { "???", 3 } },
+    {0}
+};
+
+const char* porth_intrinsic_to_cstring(porth_intrinsic intrinsic) {
+    switch (intrinsic) {
+        default: assert(false && "unreachable"); return "<unknown>";
+        case INTRINSIC_PLUS: return "+";
+        case INTRINSIC_MINUS: return "-";
+        case INTRINSIC_MUL: return "*";
+        case INTRINSIC_DIVMOD: return "divmod";
+        case INTRINSIC_IDIVMOD: return "idivmod";
+        case INTRINSIC_MAX: return "max";
+        case INTRINSIC_PRINT: return "print";
+        case INTRINSIC_EQ: return "=";
+        case INTRINSIC_GT: return ">";
+        case INTRINSIC_LT: return "<";
+        case INTRINSIC_GE: return ">=";
+        case INTRINSIC_LE: return "<=";
+        case INTRINSIC_NE: return "!=";
+        case INTRINSIC_SHR: return "shr";
+        case INTRINSIC_SHL: return "shl";
+        case INTRINSIC_OR: return "or";
+        case INTRINSIC_AND: return "and";
+        case INTRINSIC_NOT: return "not";
+        case INTRINSIC_DUP: return "dup";
+        case INTRINSIC_SWAP: return "swap";
+        case INTRINSIC_DROP: return "drop";
+        case INTRINSIC_OVER: return "over";
+        case INTRINSIC_ROT: return "rot";
+        case INTRINSIC_STORE8: return "!8";
+        case INTRINSIC_LOAD8: return "@8";
+        case INTRINSIC_STORE16: return "!16";
+        case INTRINSIC_LOAD16: return "@16";
+        case INTRINSIC_STORE32: return "!32";
+        case INTRINSIC_LOAD32: return "@32";
+        case INTRINSIC_STORE64: return "!64";
+        case INTRINSIC_LOAD64: return "@64";
+        case INTRINSIC_CAST_PTR: return "cast(ptr)";
+        case INTRINSIC_CAST_INT: return "cast(int)";
+        case INTRINSIC_CAST_BOOL: return "cast(bool)";
+        case INTRINSIC_CAST_ADDR: return "cast(addr)";
+        case INTRINSIC_ARGC: return "argc";
+        case INTRINSIC_ARGV: return "argv";
+        case INTRINSIC_ENVP: return "envp";
+        case INTRINSIC_SYSCALL0: return "syscall0";
+        case INTRINSIC_SYSCALL1: return "syscall1";
+        case INTRINSIC_SYSCALL2: return "syscall2";
+        case INTRINSIC_SYSCALL3: return "syscall3";
+        case INTRINSIC_SYSCALL4: return "syscall4";
+        case INTRINSIC_SYSCALL5: return "syscall5";
+        case INTRINSIC_SYSCALL6: return "syscall6";
+        case INTRINSIC_QQQ: return "???";
+    }
+}
+
+const char* porth_instruction_kind_to_cstring(porth_instruction_kind kind) {
+    switch (kind) {
+        default: assert(false && "unreachable"); return "<unknown>";
+        case PORTH_INST_NOP: return "PORTH_INST_NOP";
+        case PORTH_INST_PUSH_INT: return "PORTH_INST_PUSH_INT";
+        case PORTH_INST_PUSH_BOOL: return "PORTH_INST_PUSH_BOOL";
+        case PORTH_INST_PUSH_PTR: return "PORTH_INST_PUSH_PTR";
+        case PORTH_INST_PUSH_ADDR: return "PORTH_INST_PUSH_ADDR";
+        case PORTH_INST_PUSH_LOCAL_MEM: return "PORTH_INST_PUSH_LOCAL_MEM";
+        case PORTH_INST_PUSH_GLOBAL_MEM: return "PORTH_INST_PUSH_GLOBAL_MEM";
+        case PORTH_INST_PUSH_STR: return "PORTH_INST_PUSH_STR";
+        case PORTH_INST_PUSH_CSTR: return "PORTH_INST_PUSH_CSTR";
+        case PORTH_INST_IF: return "PORTH_INST_IF";
+        case PORTH_INST_IFSTAR: return "PORTH_INST_IFSTAR";
+        case PORTH_INST_ELSE: return "PORTH_INST_ELSE";
+        case PORTH_INST_END_IF: return "PORTH_INST_END_IF";
+        case PORTH_INST_END_WHILE: return "PORTH_INST_END_WHILE";
+        case PORTH_INST_PREP_PROC: return "PORTH_INST_PREP_PROC";
+        case PORTH_INST_RET: return "PORTH_INST_RET";
+        case PORTH_INST_CALL: return "PORTH_INST_CALL";
+        case PORTH_INST_INLINED: return "PORTH_INST_INLINED";
+        case PORTH_INST_WHILE: return "PORTH_INST_WHILE";
+        case PORTH_INST_DO: return "PORTH_INST_DO";
+        case PORTH_INST_INTRINSIC: return "PORTH_INST_INTRINSIC";
+        case PORTH_INST_CALL_LIKE: return "PORTH_INST_CALL_LIKE";
+        case PORTH_INST_BIND_LET: return "PORTH_INST_BIND_LET";
+        case PORTH_INST_BIND_PEEK: return "PORTH_INST_BIND_PEEK";
+        case PORTH_INST_PUSH_BIND: return "PORTH_INST_PUSH_BIND";
+        case PORTH_INST_UNBIND: return "PORTH_INST_UNBIND";
+    }
+}
+
+void porth_push_instruction(porth_instructions* instructions, porth_instruction_kind kind, int64_t operand, porth_token token) {
+    porth_instruction instruction = {
+        .kind = kind,
+        .operand = operand,
+        .token = token,
+    };
+    porth_vector_push(instructions, instruction);
+}
+
+void porth_instructions_dump(porth_instructions* instructions) {
+    for (int64_t i = 0; i < instructions->count; i++) {
+        porth_instruction instruction = instructions->items[i];
+
+        porth_string_view source_name = instruction.token.location.source->full_name;
+        fprintf(stdout, "%.*s[%ld]: %ld => %s ", (int)source_name.length, source_name.data, instruction.token.location.offset, i, porth_instruction_kind_to_cstring(instruction.kind));
+        if (instruction.kind == PORTH_INST_INTRINSIC) {
+            fprintf(stdout, "%s\n", porth_intrinsic_to_cstring((porth_intrinsic)instruction.operand));
+        } else {
+            fprintf(stdout, "%ld\n", instruction.operand);
+        }
     }
 }
 
@@ -339,13 +524,7 @@ done_lex:;
     assert(parser->current_source_position > start_position);
 }
 
-porth_program* porth_compile(porth_source* source, porth_arena* arena) {
-    porth_program* program = calloc(1, sizeof *program);
-
-    if (source == NULL || source->text.length == 0) {
-        return program;
-    }
-
+static void porth_compile_into(porth_compile_state* state, porth_program* program, porth_source* source, porth_arena* arena) {
     porth_parser parser = {
         .arena = arena,
         .source = source,
@@ -364,7 +543,19 @@ porth_program* porth_compile(porth_source* source, porth_arena* arena) {
             fprintf(stderr, "%s\n", porth_token_kind_to_cstring(parser.token.kind));
         }
     }
+}
 
+porth_program* porth_compile(porth_source* source, porth_arena* arena) {
+    porth_program* program = calloc(1, sizeof *program);
+
+    if (source == NULL || source->text.length == 0) {
+        return program;
+    }
+
+    porth_compile_state state = {
+    };
+
+    porth_compile_into(&state, program, source, arena);
     return program;
 }
 
