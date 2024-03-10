@@ -40,17 +40,18 @@ typedef struct porth_parser {
 } porth_parser;
 
 typedef struct porth_compile_state {
-    int dummy;
+    porth_datatypes type_stack;
+    porth_instructions backpatch_stack;
 } porth_compile_state;
 
-void porth_vector_ensure_capacity(void** items, int64_t element_size, int64_t capacity, int64_t minimum_capacity) {
+int64_t porth_vector_ensure_capacity(void** items, int64_t element_size, int64_t capacity, int64_t minimum_capacity) {
     assert(items != NULL);
     assert(element_size > 0);
     assert(capacity >= 0);
     assert(minimum_capacity >= 0);
 
     if (capacity >= minimum_capacity) {
-        return; // already gucci
+        return capacity; // already gucci
     }
 
     int64_t new_capacity = capacity;
@@ -64,6 +65,8 @@ void porth_vector_ensure_capacity(void** items, int64_t element_size, int64_t ca
 
     *items = realloc(*items, (size_t)(new_capacity * element_size));
     memset(((char*)*items) + (capacity * element_size), 0, (new_capacity - capacity) * element_size);
+    
+    return new_capacity;
 }
 
 porth_string_view porth_string_view_from_cstring(const char* cstring) {
@@ -197,104 +200,104 @@ static struct {
     porth_intrinsic intrinsic;
     porth_string_view image;
 } intrinsic_names[] = {
-    { INTRINSIC_PLUS, { "+", 1 } },
-    { INTRINSIC_MINUS, { "-", 1 } },
-    { INTRINSIC_MUL, { "*", 1 } },
-    { INTRINSIC_DIVMOD, { "divmod", 6 } },
-    { INTRINSIC_IDIVMOD, { "idivmod", 7 } },
-    { INTRINSIC_MAX, { "max", 3 } },
-    { INTRINSIC_PRINT, { "print", 5 } },
-    { INTRINSIC_EQ, { "=", 1 } },
-    { INTRINSIC_GT, { ">", 1 } },
-    { INTRINSIC_LT, { "<", 1 } },
-    { INTRINSIC_GE, { ">=", 2 } },
-    { INTRINSIC_LE, { "<=", 2 } },
-    { INTRINSIC_NE, { "!=", 2 } },
-    { INTRINSIC_SHR, { "shr", 3 } },
-    { INTRINSIC_SHL, { "shl", 3 } },
-    { INTRINSIC_OR, { "or", 2 } },
-    { INTRINSIC_AND, { "and", 3 } },
-    { INTRINSIC_NOT, { "not", 3 } },
-    { INTRINSIC_DUP, { "dup", 3 } },
-    { INTRINSIC_SWAP, { "swap", 4 } },
-    { INTRINSIC_DROP, { "drop", 4 } },
-    { INTRINSIC_OVER, { "over", 4 } },
-    { INTRINSIC_ROT, { "rot", 3 } },
-    { INTRINSIC_STORE8, { "!8", 2 } },
-    { INTRINSIC_LOAD8, { "@8", 2 } },
-    { INTRINSIC_STORE16, { "!16", 3 } },
-    { INTRINSIC_LOAD16, { "@16", 3 } },
-    { INTRINSIC_STORE32, { "!32", 3 } },
-    { INTRINSIC_LOAD32, { "@32", 3 } },
-    { INTRINSIC_STORE64, { "!64", 3 } },
-    { INTRINSIC_LOAD64, { "@64", 3 } },
-    { INTRINSIC_CAST_PTR, { "cast(ptr)", 9 } },
-    { INTRINSIC_CAST_INT, { "cast(int)", 9 } },
-    { INTRINSIC_CAST_BOOL, { "cast(bool)", 10 } },
-    { INTRINSIC_CAST_ADDR, { "cast(addr)", 10 } },
-    { INTRINSIC_ARGC, { "argc", 4 } },
-    { INTRINSIC_ARGV, { "argv", 4 } },
-    { INTRINSIC_ENVP, { "envp", 4 } },
-    { INTRINSIC_SYSCALL0, { "syscall0", 8 } },
-    { INTRINSIC_SYSCALL1, { "syscall1", 8 } },
-    { INTRINSIC_SYSCALL2, { "syscall2", 8 } },
-    { INTRINSIC_SYSCALL3, { "syscall3", 8 } },
-    { INTRINSIC_SYSCALL4, { "syscall4", 8 } },
-    { INTRINSIC_SYSCALL5, { "syscall5", 8 } },
-    { INTRINSIC_SYSCALL6, { "syscall6", 8 } },
-    { INTRINSIC_QQQ, { "???", 3 } },
+    { PORTH_INTRINSIC_PLUS, { "+", 1 } },
+    { PORTH_INTRINSIC_MINUS, { "-", 1 } },
+    { PORTH_INTRINSIC_MUL, { "*", 1 } },
+    { PORTH_INTRINSIC_DIVMOD, { "divmod", 6 } },
+    { PORTH_INTRINSIC_IDIVMOD, { "idivmod", 7 } },
+    { PORTH_INTRINSIC_MAX, { "max", 3 } },
+    { PORTH_INTRINSIC_PRINT, { "print", 5 } },
+    { PORTH_INTRINSIC_EQ, { "=", 1 } },
+    { PORTH_INTRINSIC_GT, { ">", 1 } },
+    { PORTH_INTRINSIC_LT, { "<", 1 } },
+    { PORTH_INTRINSIC_GE, { ">=", 2 } },
+    { PORTH_INTRINSIC_LE, { "<=", 2 } },
+    { PORTH_INTRINSIC_NE, { "!=", 2 } },
+    { PORTH_INTRINSIC_SHR, { "shr", 3 } },
+    { PORTH_INTRINSIC_SHL, { "shl", 3 } },
+    { PORTH_INTRINSIC_OR, { "or", 2 } },
+    { PORTH_INTRINSIC_AND, { "and", 3 } },
+    { PORTH_INTRINSIC_NOT, { "not", 3 } },
+    { PORTH_INTRINSIC_DUP, { "dup", 3 } },
+    { PORTH_INTRINSIC_SWAP, { "swap", 4 } },
+    { PORTH_INTRINSIC_DROP, { "drop", 4 } },
+    { PORTH_INTRINSIC_OVER, { "over", 4 } },
+    { PORTH_INTRINSIC_ROT, { "rot", 3 } },
+    { PORTH_INTRINSIC_STORE8, { "!8", 2 } },
+    { PORTH_INTRINSIC_LOAD8, { "@8", 2 } },
+    { PORTH_INTRINSIC_STORE16, { "!16", 3 } },
+    { PORTH_INTRINSIC_LOAD16, { "@16", 3 } },
+    { PORTH_INTRINSIC_STORE32, { "!32", 3 } },
+    { PORTH_INTRINSIC_LOAD32, { "@32", 3 } },
+    { PORTH_INTRINSIC_STORE64, { "!64", 3 } },
+    { PORTH_INTRINSIC_LOAD64, { "@64", 3 } },
+    { PORTH_INTRINSIC_CAST_PTR, { "cast(ptr)", 9 } },
+    { PORTH_INTRINSIC_CAST_INT, { "cast(int)", 9 } },
+    { PORTH_INTRINSIC_CAST_BOOL, { "cast(bool)", 10 } },
+    { PORTH_INTRINSIC_CAST_ADDR, { "cast(addr)", 10 } },
+    { PORTH_INTRINSIC_ARGC, { "argc", 4 } },
+    { PORTH_INTRINSIC_ARGV, { "argv", 4 } },
+    { PORTH_INTRINSIC_ENVP, { "envp", 4 } },
+    { PORTH_INTRINSIC_SYSCALL0, { "syscall0", 8 } },
+    { PORTH_INTRINSIC_SYSCALL1, { "syscall1", 8 } },
+    { PORTH_INTRINSIC_SYSCALL2, { "syscall2", 8 } },
+    { PORTH_INTRINSIC_SYSCALL3, { "syscall3", 8 } },
+    { PORTH_INTRINSIC_SYSCALL4, { "syscall4", 8 } },
+    { PORTH_INTRINSIC_SYSCALL5, { "syscall5", 8 } },
+    { PORTH_INTRINSIC_SYSCALL6, { "syscall6", 8 } },
+    { PORTH_INTRINSIC_QQQ, { "???", 3 } },
     {0}
 };
 
-const char* porth_intrinsic_to_cstring(porth_intrinsic intrinsic) {
+const char* porth_PORTH_INTRINSIC_to_cstring(porth_intrinsic intrinsic) {
     switch (intrinsic) {
         default: assert(false && "unreachable"); return "<unknown>";
-        case INTRINSIC_PLUS: return "+";
-        case INTRINSIC_MINUS: return "-";
-        case INTRINSIC_MUL: return "*";
-        case INTRINSIC_DIVMOD: return "divmod";
-        case INTRINSIC_IDIVMOD: return "idivmod";
-        case INTRINSIC_MAX: return "max";
-        case INTRINSIC_PRINT: return "print";
-        case INTRINSIC_EQ: return "=";
-        case INTRINSIC_GT: return ">";
-        case INTRINSIC_LT: return "<";
-        case INTRINSIC_GE: return ">=";
-        case INTRINSIC_LE: return "<=";
-        case INTRINSIC_NE: return "!=";
-        case INTRINSIC_SHR: return "shr";
-        case INTRINSIC_SHL: return "shl";
-        case INTRINSIC_OR: return "or";
-        case INTRINSIC_AND: return "and";
-        case INTRINSIC_NOT: return "not";
-        case INTRINSIC_DUP: return "dup";
-        case INTRINSIC_SWAP: return "swap";
-        case INTRINSIC_DROP: return "drop";
-        case INTRINSIC_OVER: return "over";
-        case INTRINSIC_ROT: return "rot";
-        case INTRINSIC_STORE8: return "!8";
-        case INTRINSIC_LOAD8: return "@8";
-        case INTRINSIC_STORE16: return "!16";
-        case INTRINSIC_LOAD16: return "@16";
-        case INTRINSIC_STORE32: return "!32";
-        case INTRINSIC_LOAD32: return "@32";
-        case INTRINSIC_STORE64: return "!64";
-        case INTRINSIC_LOAD64: return "@64";
-        case INTRINSIC_CAST_PTR: return "cast(ptr)";
-        case INTRINSIC_CAST_INT: return "cast(int)";
-        case INTRINSIC_CAST_BOOL: return "cast(bool)";
-        case INTRINSIC_CAST_ADDR: return "cast(addr)";
-        case INTRINSIC_ARGC: return "argc";
-        case INTRINSIC_ARGV: return "argv";
-        case INTRINSIC_ENVP: return "envp";
-        case INTRINSIC_SYSCALL0: return "syscall0";
-        case INTRINSIC_SYSCALL1: return "syscall1";
-        case INTRINSIC_SYSCALL2: return "syscall2";
-        case INTRINSIC_SYSCALL3: return "syscall3";
-        case INTRINSIC_SYSCALL4: return "syscall4";
-        case INTRINSIC_SYSCALL5: return "syscall5";
-        case INTRINSIC_SYSCALL6: return "syscall6";
-        case INTRINSIC_QQQ: return "???";
+        case PORTH_INTRINSIC_PLUS: return "+";
+        case PORTH_INTRINSIC_MINUS: return "-";
+        case PORTH_INTRINSIC_MUL: return "*";
+        case PORTH_INTRINSIC_DIVMOD: return "divmod";
+        case PORTH_INTRINSIC_IDIVMOD: return "idivmod";
+        case PORTH_INTRINSIC_MAX: return "max";
+        case PORTH_INTRINSIC_PRINT: return "print";
+        case PORTH_INTRINSIC_EQ: return "=";
+        case PORTH_INTRINSIC_GT: return ">";
+        case PORTH_INTRINSIC_LT: return "<";
+        case PORTH_INTRINSIC_GE: return ">=";
+        case PORTH_INTRINSIC_LE: return "<=";
+        case PORTH_INTRINSIC_NE: return "!=";
+        case PORTH_INTRINSIC_SHR: return "shr";
+        case PORTH_INTRINSIC_SHL: return "shl";
+        case PORTH_INTRINSIC_OR: return "or";
+        case PORTH_INTRINSIC_AND: return "and";
+        case PORTH_INTRINSIC_NOT: return "not";
+        case PORTH_INTRINSIC_DUP: return "dup";
+        case PORTH_INTRINSIC_SWAP: return "swap";
+        case PORTH_INTRINSIC_DROP: return "drop";
+        case PORTH_INTRINSIC_OVER: return "over";
+        case PORTH_INTRINSIC_ROT: return "rot";
+        case PORTH_INTRINSIC_STORE8: return "!8";
+        case PORTH_INTRINSIC_LOAD8: return "@8";
+        case PORTH_INTRINSIC_STORE16: return "!16";
+        case PORTH_INTRINSIC_LOAD16: return "@16";
+        case PORTH_INTRINSIC_STORE32: return "!32";
+        case PORTH_INTRINSIC_LOAD32: return "@32";
+        case PORTH_INTRINSIC_STORE64: return "!64";
+        case PORTH_INTRINSIC_LOAD64: return "@64";
+        case PORTH_INTRINSIC_CAST_PTR: return "cast(ptr)";
+        case PORTH_INTRINSIC_CAST_INT: return "cast(int)";
+        case PORTH_INTRINSIC_CAST_BOOL: return "cast(bool)";
+        case PORTH_INTRINSIC_CAST_ADDR: return "cast(addr)";
+        case PORTH_INTRINSIC_ARGC: return "argc";
+        case PORTH_INTRINSIC_ARGV: return "argv";
+        case PORTH_INTRINSIC_ENVP: return "envp";
+        case PORTH_INTRINSIC_SYSCALL0: return "syscall0";
+        case PORTH_INTRINSIC_SYSCALL1: return "syscall1";
+        case PORTH_INTRINSIC_SYSCALL2: return "syscall2";
+        case PORTH_INTRINSIC_SYSCALL3: return "syscall3";
+        case PORTH_INTRINSIC_SYSCALL4: return "syscall4";
+        case PORTH_INTRINSIC_SYSCALL5: return "syscall5";
+        case PORTH_INTRINSIC_SYSCALL6: return "syscall6";
+        case PORTH_INTRINSIC_QQQ: return "???";
     }
 }
 
@@ -342,11 +345,12 @@ void porth_push_instruction(porth_instructions* instructions, porth_instruction_
 void porth_instructions_dump(porth_instructions* instructions) {
     for (int64_t i = 0; i < instructions->count; i++) {
         porth_instruction instruction = instructions->items[i];
+        assert(instruction.token.location.source != NULL);
 
         porth_string_view source_name = instruction.token.location.source->full_name;
         fprintf(stdout, "%.*s[%ld]: %ld => %s ", (int)source_name.length, source_name.data, instruction.token.location.offset, i, porth_instruction_kind_to_cstring(instruction.kind));
         if (instruction.kind == PORTH_INST_INTRINSIC) {
-            fprintf(stdout, "%s\n", porth_intrinsic_to_cstring((porth_intrinsic)instruction.operand));
+            fprintf(stdout, "%s\n", porth_PORTH_INTRINSIC_to_cstring((porth_intrinsic)instruction.operand));
         } else {
             fprintf(stdout, "%ld\n", instruction.operand);
         }
@@ -532,9 +536,11 @@ static void porth_compile_into(porth_compile_state* state, porth_program* progra
         .current_character_byte_count = 1,
     };
 
-    while (1) {
-        porth_parser_read_next_token(&parser, &parser.token);
+    porth_parser_read_next_token(&parser, &parser.token);
+    for (;;) {
         if (parser.token.kind == PORTH_TK_EOF) break;
+
+#if 0
         if (parser.token.kind == PORTH_TK_INT) {
             fprintf(stderr, "INT : %ld\n", parser.token.integer_value);
         } else if (parser.token.kind == PORTH_TK_WORD) {
@@ -542,7 +548,40 @@ static void porth_compile_into(porth_compile_state* state, porth_program* progra
         } else {
             fprintf(stderr, "%s\n", porth_token_kind_to_cstring(parser.token.kind));
         }
+#endif
+
+        switch (parser.token.kind) {
+            default: {
+                fprintf(stderr, "unhandled token kind in porth_compile_into: %s\n", porth_token_kind_to_cstring(parser.token.kind));
+                assert(false && "unhandled token kind in porth_compile_into");
+            } break;
+
+            case PORTH_TK_INT: {
+                porth_push_instruction(&program->instructions, PORTH_INST_PUSH_INT, parser.token.integer_value, parser.token);
+                porth_parser_read_next_token(&parser, &parser.token);
+            } break;
+
+            case PORTH_TK_WORD: {
+                porth_intrinsic intrinsic = PORTH_INTRINSIC_NONE;
+                for (int64_t i = 0; intrinsic_names->intrinsic != PORTH_INTRINSIC_NONE; i++) {
+                    if (porth_string_view_equals(parser.token.string_value, intrinsic_names[i].image)) {
+                        intrinsic = intrinsic_names[i].intrinsic;
+                        break;
+                    }
+                }
+
+                if (intrinsic != PORTH_INTRINSIC_NONE) {
+                    porth_push_instruction(&program->instructions, PORTH_INST_INTRINSIC, (int64_t)intrinsic, parser.token);
+                } else {
+                    assert(false && "todo user words");
+                }
+
+                porth_parser_read_next_token(&parser, &parser.token);
+            } break;
+        }
     }
+
+    // TODO(local): program sanity checks
 }
 
 porth_program* porth_compile(porth_source* source, porth_arena* arena) {

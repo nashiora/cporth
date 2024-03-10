@@ -21,6 +21,12 @@ int main(int argc, char** argv) {
     }
 
     program = porth_compile(source, arena);
+    if (program == NULL) {
+        exit_code = 1;
+        goto exit_main;
+    }
+
+    porth_instructions_dump(&program->instructions);
 
 exit_main:;
     porth_program_destroy(program);

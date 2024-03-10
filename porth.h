@@ -6,7 +6,8 @@
 #include <stdlib.h>
 
 #define porth_vector(T) T*
-#define porth_vector_push(V, E) do { porth_vector_ensure_capacity((void**)&(V)->items, sizeof *(V)->items, (V)->capacity, (V)->count + 1); (V)->items[(V)->count++] = (E); } while (0)
+#define porth_vector_push(V, E) do { (V)->capacity = porth_vector_ensure_capacity((void**)&(V)->items, sizeof *(V)->items, (V)->capacity, (V)->count + 1); (V)->items[(V)->count++] = (E); } while (0)
+#define porth_vector_pop(V) ((V)->items[--(V)->count])
 #define porth_vector_destroy(V) do { free((V)->items); (V)->items = NULL; (V)->count = 0; (V)->capacity = 0; } while (0)
 
 typedef struct porth_string_view {
@@ -115,52 +116,53 @@ typedef struct porth_named_constants {
 } porth_named_constants;
 
 typedef enum porth_intrinsic {
-    INTRINSIC_PLUS,
-    INTRINSIC_MINUS,
-    INTRINSIC_MUL,
-    INTRINSIC_DIVMOD,
-    INTRINSIC_IDIVMOD,
-    INTRINSIC_MAX,
-    INTRINSIC_EQ,
-    INTRINSIC_GT,
-    INTRINSIC_LT,
-    INTRINSIC_GE,
-    INTRINSIC_LE,
-    INTRINSIC_NE,
-    INTRINSIC_SHR,
-    INTRINSIC_SHL,
-    INTRINSIC_OR,
-    INTRINSIC_AND,
-    INTRINSIC_NOT,
-    INTRINSIC_PRINT,
-    INTRINSIC_DUP,
-    INTRINSIC_SWAP,
-    INTRINSIC_DROP,
-    INTRINSIC_OVER,
-    INTRINSIC_ROT,
-    INTRINSIC_LOAD8,
-    INTRINSIC_STORE8,
-    INTRINSIC_LOAD16,
-    INTRINSIC_STORE16,
-    INTRINSIC_LOAD32,
-    INTRINSIC_STORE32,
-    INTRINSIC_LOAD64,
-    INTRINSIC_STORE64,
-    INTRINSIC_CAST_PTR,
-    INTRINSIC_CAST_INT,
-    INTRINSIC_CAST_BOOL,
-    INTRINSIC_CAST_ADDR,
-    INTRINSIC_ARGC,
-    INTRINSIC_ARGV,
-    INTRINSIC_ENVP,
-    INTRINSIC_SYSCALL0,
-    INTRINSIC_SYSCALL1,
-    INTRINSIC_SYSCALL2,
-    INTRINSIC_SYSCALL3,
-    INTRINSIC_SYSCALL4,
-    INTRINSIC_SYSCALL5,
-    INTRINSIC_SYSCALL6,
-    INTRINSIC_QQQ,
+    PORTH_INTRINSIC_NONE,
+    PORTH_INTRINSIC_PLUS,
+    PORTH_INTRINSIC_MINUS,
+    PORTH_INTRINSIC_MUL,
+    PORTH_INTRINSIC_DIVMOD,
+    PORTH_INTRINSIC_IDIVMOD,
+    PORTH_INTRINSIC_MAX,
+    PORTH_INTRINSIC_EQ,
+    PORTH_INTRINSIC_GT,
+    PORTH_INTRINSIC_LT,
+    PORTH_INTRINSIC_GE,
+    PORTH_INTRINSIC_LE,
+    PORTH_INTRINSIC_NE,
+    PORTH_INTRINSIC_SHR,
+    PORTH_INTRINSIC_SHL,
+    PORTH_INTRINSIC_OR,
+    PORTH_INTRINSIC_AND,
+    PORTH_INTRINSIC_NOT,
+    PORTH_INTRINSIC_PRINT,
+    PORTH_INTRINSIC_DUP,
+    PORTH_INTRINSIC_SWAP,
+    PORTH_INTRINSIC_DROP,
+    PORTH_INTRINSIC_OVER,
+    PORTH_INTRINSIC_ROT,
+    PORTH_INTRINSIC_LOAD8,
+    PORTH_INTRINSIC_STORE8,
+    PORTH_INTRINSIC_LOAD16,
+    PORTH_INTRINSIC_STORE16,
+    PORTH_INTRINSIC_LOAD32,
+    PORTH_INTRINSIC_STORE32,
+    PORTH_INTRINSIC_LOAD64,
+    PORTH_INTRINSIC_STORE64,
+    PORTH_INTRINSIC_CAST_PTR,
+    PORTH_INTRINSIC_CAST_INT,
+    PORTH_INTRINSIC_CAST_BOOL,
+    PORTH_INTRINSIC_CAST_ADDR,
+    PORTH_INTRINSIC_ARGC,
+    PORTH_INTRINSIC_ARGV,
+    PORTH_INTRINSIC_ENVP,
+    PORTH_INTRINSIC_SYSCALL0,
+    PORTH_INTRINSIC_SYSCALL1,
+    PORTH_INTRINSIC_SYSCALL2,
+    PORTH_INTRINSIC_SYSCALL3,
+    PORTH_INTRINSIC_SYSCALL4,
+    PORTH_INTRINSIC_SYSCALL5,
+    PORTH_INTRINSIC_SYSCALL6,
+    PORTH_INTRINSIC_QQQ,
 } porth_intrinsic;
 
 typedef enum porth_instruction_kind {
@@ -226,7 +228,7 @@ typedef struct porth_program {
     porth_procedures procedures;
 } porth_program;
 
-void porth_vector_ensure_capacity(void** items, int64_t element_size, int64_t capacity, int64_t minimum_capacity);
+int64_t porth_vector_ensure_capacity(void** items, int64_t element_size, int64_t capacity, int64_t minimum_capacity);
 
 porth_string_view porth_string_view_from_cstring(const char* cstring);
 bool porth_string_view_equals(porth_string_view lhs, porth_string_view rhs);
