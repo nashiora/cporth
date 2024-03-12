@@ -13,6 +13,12 @@
 #define porth_vector_destroy(V) do { free((V)->items); (V)->items = NULL; (V)->count = 0; (V)->capacity = 0; } while (0)
 #define porth_vector_typedef(N, ET) typedef struct N { ET* items; int64_t count; int64_t capacity; } N
 
+#if defined(_MSC_VER)
+#define porth_discard (void)
+#else
+#define porth_discard (void) sizeof
+#endif
+
 #define PORTH_SV_EXPAND(SV) (int)SV.length, SV.data
 #define PORTH_SB_EXPAND(SB) (int)SB.count, SB.items
 

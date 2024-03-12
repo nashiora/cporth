@@ -678,7 +678,7 @@ static void porth_expect_arity(porth_compile_state* state, porth_location locati
     }
 
     for (int i = 0; i < arity && state->type_stack.count > 0; i++) {
-        porth_vector_pop(&state->type_stack);
+        porth_discard porth_vector_pop(&state->type_stack);
     }
 }
 
@@ -733,7 +733,7 @@ static void porth_expect_types(porth_compile_state* state, porth_location locati
     }
 
     for (int i = 0; i < count && state->type_stack.count > 0; i++) {
-        porth_vector_pop(&state->type_stack);
+        porth_discard porth_vector_pop(&state->type_stack);
     }
 }
 
