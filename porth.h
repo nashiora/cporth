@@ -1,6 +1,7 @@
 #ifndef PORTH_H
 #define PORTH_H
 
+#include <stdarg.h>
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
@@ -8,18 +9,56 @@
 #define porth_vector(T) T*
 #define porth_vector_push(V, E) do { (V)->capacity = porth_vector_ensure_capacity((void**)&(V)->items, sizeof *(V)->items, (V)->capacity, (V)->count + 1); (V)->items[(V)->count++] = (E); } while (0)
 #define porth_vector_pop(V) ((V)->items[--(V)->count])
+#define porth_vector_reset(V) do { (V)->count = 0; } while (0)
 #define porth_vector_destroy(V) do { free((V)->items); (V)->items = NULL; (V)->count = 0; (V)->capacity = 0; } while (0)
+#define porth_vector_typedef(N, ET) typedef struct N { ET* items; int64_t count; int64_t capacity; } N
+
+#define PORTH_SV_EXPAND(SV) (int)SV.length, SV.data
+#define PORTH_SB_EXPAND(SB) (int)SB.count, SB.items
+
+#define ANSI_COLOR_RESET             "\x1b[0m"
+#define ANSI_COLOR_BLACK             "\x1b[30m"
+#define ANSI_COLOR_RED               "\x1b[31m"
+#define ANSI_COLOR_GREEN             "\x1b[32m"
+#define ANSI_COLOR_YELLOW            "\x1b[33m"
+#define ANSI_COLOR_BLUE              "\x1b[34m"
+#define ANSI_COLOR_MAGENTA           "\x1b[35m"
+#define ANSI_COLOR_CYAN              "\x1b[36m"
+#define ANSI_COLOR_WHITE             "\x1b[37m"
+#define ANSI_COLOR_BRIGHT_BLACK      "\x1b[30;1m"
+#define ANSI_COLOR_BRIGHT_RED        "\x1b[31;1m"
+#define ANSI_COLOR_BRIGHT_GREEN      "\x1b[32;1m"
+#define ANSI_COLOR_BRIGHT_YELLOW     "\x1b[33;1m"
+#define ANSI_COLOR_BRIGHT_BLUE       "\x1b[34;1m"
+#define ANSI_COLOR_BRIGHT_MAGENTA    "\x1b[35;1m"
+#define ANSI_COLOR_BRIGHT_CYAN       "\x1b[36;1m"
+#define ANSI_COLOR_BRIGHT_WHITE      "\x1b[37;1m"
+#define ANSI_BG_COLOR_BLACK          "\x1b[40m"
+#define ANSI_BG_COLOR_RED            "\x1b[41m"
+#define ANSI_BG_COLOR_GREEN          "\x1b[42m"
+#define ANSI_BG_COLOR_YELLOW         "\x1b[43m"
+#define ANSI_BG_COLOR_BLUE           "\x1b[44m"
+#define ANSI_BG_COLOR_MAGENTA        "\x1b[45m"
+#define ANSI_BG_COLOR_CYAN           "\x1b[46m"
+#define ANSI_BG_COLOR_WHITE          "\x1b[47m"
+#define ANSI_BG_COLOR_BRIGHT_BLACK   "\x1b[40;1m"
+#define ANSI_BG_COLOR_BRIGHT_RED     "\x1b[41;1m"
+#define ANSI_BG_COLOR_BRIGHT_GREEN   "\x1b[42;1m"
+#define ANSI_BG_COLOR_BRIGHT_YELLOW  "\x1b[43;1m"
+#define ANSI_BG_COLOR_BRIGHT_BLUE    "\x1b[44;1m"
+#define ANSI_BG_COLOR_BRIGHT_MAGENTA "\x1b[45;1m"
+#define ANSI_BG_COLOR_BRIGHT_CYAN    "\x1b[46;1m"
+#define ANSI_BG_COLOR_BRIGHT_WHITE   "\x1b[47;1m"
+#define ANSI_STYLE_BOLD              "\x1b[1m" 
+#define ANSI_STYLE_UNDERLINE         "\x1b[4m"
+#define ANSI_STYLE_REVERSED          "\x1b[7m"
 
 typedef struct porth_string_view {
     const char* data;
     int64_t length;
 } porth_string_view;
 
-typedef struct porth_string_builder {
-    char* items;
-    int64_t count;
-    int64_t capacity;
-} porth_string_builder;
+porth_vector_typedef(porth_string_builder, char);
 
 typedef struct porth_arena porth_arena;
 
@@ -33,6 +72,28 @@ typedef struct porth_location {
     int64_t offset;
     int64_t length;
 } porth_location;
+
+typedef enum porth_diagnostic_kind {
+    PORTH_TRACE,
+    PORTH_DEBUG,
+    PORTH_INFO,
+    PORTH_WARNING,
+    PORTH_ERROR,
+    PORTH_FATAL,
+} porth_diagnostic_kind;
+
+typedef struct porth_diagnostic {
+    porth_diagnostic_kind kind;
+    porth_location location;
+    porth_string_view message;
+} porth_diagnostic;
+
+typedef struct porth_diagnostics {
+    porth_diagnostic* items;
+    int64_t count;
+    int64_t capacity;
+    int64_t error_count;
+} porth_diagnostics;
 
 typedef enum porth_token_kind {
     PORTH_TK_INVALID,
@@ -76,21 +137,6 @@ typedef struct porth_token {
     };
 } porth_token;
 
-typedef enum porth_value_kind {
-    PORTH_VALUE_INTEGER,
-    PORTH_VALUE_FLOAT,
-    PORTH_VALUE_STRING,
-} porth_value_kind;
-
-typedef struct porth_value {
-    porth_value_kind kind;
-    union {
-        int64_t integer_value;
-        double float_value;
-        porth_string_view string_value;
-    };
-} porth_value;
-
 typedef enum porth_datatype {
     PORTH_DATATYPE_INT,
     PORTH_DATATYPE_PTR,
@@ -98,22 +144,25 @@ typedef enum porth_datatype {
     PORTH_DATATYPE_ADDR,
 } porth_datatype;
 
-typedef struct porth_datatypes {
-    porth_datatype* items;
-    int64_t count;
-    int64_t capacity;
-} porth_datatypes;
+porth_vector_typedef(porth_datatypes, porth_datatype);
+
+typedef struct porth_value {
+    porth_datatype datatype;
+    union {
+        int64_t integer_value;
+        double float_value;
+        porth_string_view string_value;
+    };
+} porth_value;
+
+porth_vector_typedef(porth_values, porth_value);
 
 typedef struct porth_named_constant {
     porth_string_view name;
     porth_value value;
 } porth_named_constant;
 
-typedef struct porth_named_constants {
-    porth_named_constant* items;
-    int64_t count;
-    int64_t capacity;
-} porth_named_constants;
+porth_vector_typedef(porth_named_constants, porth_named_constant);
 
 typedef enum porth_intrinsic {
     PORTH_INTRINSIC_NONE,
@@ -203,29 +252,34 @@ typedef struct porth_instruction {
     };
 } porth_instruction;
 
-typedef struct porth_instructions {
-    porth_instruction* items;
-    int64_t count;
-    int64_t capacity;
-} porth_instructions;
+porth_vector_typedef(porth_instructions, porth_instruction);
+
+typedef struct porth_memory {
+    porth_string_view name;
+    porth_location location;
+    int64_t offset;
+} porth_memory;
+
+porth_vector_typedef(porth_memories, porth_memory);
 
 typedef struct porth_procedure {
     porth_string_view name;
     int64_t instruction_index;
+    porth_location location;
     porth_datatypes input_stack;
     porth_datatypes output_stack;
+    bool inlinable;
+    int64_t size;
 } porth_procedure;
 
-typedef struct porth_procedures {
-    porth_procedure* items;
-    int64_t count;
-    int64_t capacity;
-} porth_procedures;
+porth_vector_typedef(porth_procedures, porth_procedure);
 
 typedef struct porth_program {
     porth_named_constants constants;
+    porth_memories global_memory;
     porth_instructions instructions;
     porth_procedures procedures;
+    porth_diagnostics diagnostics;
 } porth_program;
 
 int64_t porth_vector_ensure_capacity(void** items, int64_t element_size, int64_t capacity, int64_t minimum_capacity);
@@ -233,10 +287,23 @@ int64_t porth_vector_ensure_capacity(void** items, int64_t element_size, int64_t
 porth_string_view porth_string_view_from_cstring(const char* cstring);
 bool porth_string_view_equals(porth_string_view lhs, porth_string_view rhs);
 
+void porth_string_builder_append(porth_string_builder* builder, const char* cstring);
+porth_string_view porth_string_builder_as_view(porth_string_builder* builder);
+void porth_string_builder_reset(porth_string_builder* builder);
+
 porth_arena* porth_arena_create(int64_t block_size);
 void porth_arena_reset(porth_arena* arena);
 void* porth_arena_push(porth_arena* arena, int64_t byte_count);
 void porth_arena_destroy(porth_arena* arena);
+
+void porth_temp_init();
+void porth_temp_destroy();
+void* porth_temp_alloc(int64_t count);
+porth_string_view porth_temp_sprintf(const char* format, ...);
+porth_string_view porth_temp_vsprintf(const char* format, va_list v);
+
+void porth_diagnostic_push(porth_diagnostics* diagnostics, porth_diagnostic diagnostic);
+void porth_diagnostics_report(porth_diagnostics* diagnostics);
 
 const char* porth_token_kind_to_cstring(porth_token_kind kind);
 const char* porth_token_kind_to_human_string(porth_token_kind kind, bool plural);
@@ -249,5 +316,6 @@ void porth_instructions_dump(porth_instructions* instructions);
 
 porth_program* porth_compile(porth_source* source, porth_arena* arena);
 void porth_program_destroy(porth_program* program);
+void porth_program_interpret(porth_program* program);
 
 #endif // !PORTH_H

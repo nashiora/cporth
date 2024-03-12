@@ -5,8 +5,37 @@
 
 static porth_source* read_file(const char* file_path, porth_arena* arena);
 
+static const char* args_shift(int* argc, char*** argv) {
+    assert(argc != NULL);
+    assert(argv != NULL);
+    assert(*argc > 0);
+
+    const char* result = (*argv)[0];
+    (*argc)--;
+    (*argv)++;
+    return result;
+}
+
+typedef struct porthc_args {
+    const char* program_name;
+    bool help;
+    bool version;
+    bool verbose;
+
+    const char* input_file;
+} porthc_args;
+
+static bool porthc_parse_args(porthc_args* args, int* argc, char*** argv);
+
 int main(int argc, char** argv) {
     int exit_code = 0;
+
+    porth_temp_init();
+
+    porthc_args args = {0};
+    if (!porthc_parse_args(&args, &argc, &argv)) {
+        return 1;
+    }
 
     porth_arena* arena = NULL;
     porth_source* source = NULL;
@@ -14,7 +43,7 @@ int main(int argc, char** argv) {
 
     arena = porth_arena_create(16 * 1024 * 1024);
     
-    source = read_file("test/test.porth", arena);
+    source = read_file(args.input_file, arena);
     if (source == NULL) {
         exit_code = 1;
         goto exit_main;
@@ -26,6 +55,11 @@ int main(int argc, char** argv) {
         goto exit_main;
     }
 
+    if (program->diagnostics.error_count > 0) {
+        exit_code = 1;
+    }
+
+    porth_diagnostics_report(&program->diagnostics);
     porth_instructions_dump(&program->instructions);
 
 exit_main:;
@@ -38,6 +72,7 @@ exit_main:;
     free(source);
     source = NULL;
 
+    porth_temp_destroy();
     return exit_code;
 }
 
@@ -78,7 +113,7 @@ static porth_source* read_file(const char* file_path, porth_arena* arena) {
         return NULL;
     }
 
-    if (file_length != fread(file_contents, sizeof *file_contents, file_length, stream)) {
+    if (file_length != (int64_t)fread(file_contents, sizeof *file_contents, file_length, stream)) {
         fprintf(stderr, "Could not read all of Porth source file '%s' into memory.\n", file_path);
         fclose(stream);
         return NULL;
@@ -93,4 +128,32 @@ static porth_source* read_file(const char* file_path, porth_arena* arena) {
         .length = file_length,
     };
     return source;
+}
+
+static bool porthc_parse_args(porthc_args* args, int* argc, char*** argv) {
+    args->program_name = args_shift(argc, argv);
+    while (*argc > 0) {
+        const char* option = args_shift(argc, argv);
+        if (0 == strcmp(option, "--help")) {
+            args->help = true;
+        } else if (0 == strcmp(option, "--version")) {
+            args->version = true;
+        } else if (0 == strcmp(option, "--verbose")) {
+            args->verbose = true;
+        } else {
+            if (args->input_file != NULL) {
+                fprintf(stderr, ANSI_STYLE_BOLD ANSI_COLOR_RED "Error" ANSI_COLOR_RESET ": Invalid option '%s'. If this is intended to be a source file, multiple input source files are not supported.\n", option);
+                return false;
+            }
+
+            args->input_file = option;
+        }
+    }
+
+    if (args->input_file == NULL) {
+        fprintf(stderr, ANSI_STYLE_BOLD ANSI_COLOR_RED "Error" ANSI_COLOR_RESET ": No input source file provided.\n");
+        return false;
+    }
+    
+    return true;
 }

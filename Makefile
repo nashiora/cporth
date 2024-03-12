@@ -1,7 +1,7 @@
 CC = clang
 
-CFLAGS = -std=c23 -pedantic -pedantic-errors -fsanitize=address -ggdb -Werror=return-type
-LDFLAGS = 
+CFLAGS = -std=c2x -pedantic -pedantic-errors -Werror=all -Werror=extra -Wno-error=unused -Wno-error=unused-parameter -fsanitize=address -ggdb
+LDFLAGS = -fsanitize=address
 
 all: porthc
 
