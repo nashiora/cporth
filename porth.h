@@ -6,7 +6,6 @@
 #include <string.h>
 #include <stdlib.h>
 
-#define porth_vector(T) T*
 #define porth_vector_push(V, E) do { (V)->capacity = porth_vector_ensure_capacity((void**)&(V)->items, sizeof *(V)->items, (V)->capacity, (V)->count + 1); (V)->items[(V)->count++] = (E); } while (0)
 #define porth_vector_pop(V) ((V)->items[--(V)->count])
 #define porth_vector_reset(V) do { (V)->count = 0; } while (0)
@@ -207,6 +206,7 @@ typedef enum porth_intrinsic {
     PORTH_INTRINSIC_STORE64,
     PORTH_INTRINSIC_CAST_PTR,
     PORTH_INTRINSIC_CAST_INT,
+    PORTH_INTRINSIC_CAST_FLOAT,
     PORTH_INTRINSIC_CAST_BOOL,
     PORTH_INTRINSIC_CAST_ADDR,
     PORTH_INTRINSIC_ARGC,
@@ -311,6 +311,7 @@ porth_string_view porth_temp_sprintf(const char* format, ...);
 porth_string_view porth_temp_vsprintf(const char* format, va_list v);
 
 void porth_diagnostic_push(porth_diagnostics* diagnostics, porth_diagnostic diagnostic);
+void porth_diagnostic_report(porth_diagnostic diagnostic);
 void porth_diagnostics_report(porth_diagnostics* diagnostics);
 
 const char* porth_token_kind_to_cstring(porth_token_kind kind);

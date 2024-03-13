@@ -60,10 +60,10 @@ int64_t porth_vector_ensure_capacity(void** items, int64_t element_size, int64_t
     int64_t new_capacity = capacity;
     if (new_capacity == 0) {
         new_capacity = 16;
-    } else {
-        while (new_capacity < minimum_capacity) {
-            new_capacity *= 2;
-        }
+    }
+
+    while (new_capacity < minimum_capacity) {
+        new_capacity *= 2;
     }
 
     *items = realloc(*items, (size_t)(new_capacity * element_size));
@@ -224,56 +224,59 @@ void porth_diagnostic_push(porth_diagnostics* diagnostics, porth_diagnostic diag
     }
 }
 
+void porth_diagnostic_report(porth_diagnostic diagnostic) {
+    const char* color = "";
+    const char* level = "LEVEL";
+
+    switch (diagnostic.kind) {
+        default: assert(false && "unreachable");
+        case PORTH_TRACE: {
+            color = ANSI_COLOR_WHITE;
+            level = "Trace";
+        } break;
+        case PORTH_DEBUG: {
+            color = ANSI_COLOR_GREEN;
+            level = "Debug";
+        } break;
+        case PORTH_INFO: {
+            color = ANSI_COLOR_CYAN;
+            level = "Info";
+        } break;
+        case PORTH_WARNING: {
+            color = ANSI_COLOR_YELLOW;
+            level = "Warning";
+        } break;
+        case PORTH_ERROR: {
+            color = ANSI_COLOR_RED;
+            level = "Error";
+        } break;
+        case PORTH_FATAL: {
+            color = ANSI_COLOR_MAGENTA;
+            level = "Fatal";
+        } break;
+    }
+
+    fprintf(
+        stderr,
+        "%s%.*s: %s%s[%ld]%s%s: %.*s%s\n",
+        ANSI_STYLE_BOLD,
+        (int)diagnostic.location.source->full_name.length,
+        diagnostic.location.source->full_name.data,
+        color,
+        level,
+        diagnostic.location.offset,
+        ANSI_COLOR_RESET,
+        ANSI_STYLE_BOLD,
+        (int)diagnostic.message.length,
+        diagnostic.message.data,
+        ANSI_COLOR_RESET
+    );
+}
+
 void porth_diagnostics_report(porth_diagnostics* diagnostics) {
     for (int64_t i = 0; i < diagnostics->count; i++) {
         porth_diagnostic diagnostic = diagnostics->items[i];
-
-        const char* color = "";
-        const char* level = "LEVEL";
-
-        switch (diagnostic.kind) {
-            default: assert(false && "unreachable");
-            case PORTH_TRACE: {
-                color = ANSI_COLOR_WHITE;
-                level = "Trace";
-            } break;
-            case PORTH_DEBUG: {
-                color = ANSI_COLOR_GREEN;
-                level = "Debug";
-            } break;
-            case PORTH_INFO: {
-                color = ANSI_COLOR_CYAN;
-                level = "Info";
-            } break;
-            case PORTH_WARNING: {
-                color = ANSI_COLOR_YELLOW;
-                level = "Warning";
-            } break;
-            case PORTH_ERROR: {
-                color = ANSI_COLOR_RED;
-                level = "Error";
-            } break;
-            case PORTH_FATAL: {
-                color = ANSI_COLOR_MAGENTA;
-                level = "Fatal";
-            } break;
-        }
-
-        fprintf(
-            stderr,
-            "%s%.*s: %s%s[%ld]%s%s: %.*s%s\n",
-            ANSI_STYLE_BOLD,
-            (int)diagnostic.location.source->full_name.length,
-            diagnostic.location.source->full_name.data,
-            color,
-            level,
-            diagnostic.location.offset,
-            ANSI_COLOR_RESET,
-            ANSI_STYLE_BOLD,
-            (int)diagnostic.message.length,
-            diagnostic.message.data,
-            ANSI_COLOR_RESET
-        );
+        porth_diagnostic_report(diagnostic);
     }
 }
 
@@ -767,7 +770,76 @@ static int64_t porth_expect_type_patterns(
     return matching_pattern;
 }
 
-#define ALLPATTERNS_M (PORTH_DATATYPE_COUNT)
+static void porth_expect_syscall_types(
+    porth_compile_state* state,
+    porth_location location,
+    int arity
+) {
+    assert(state != NULL);
+    assert(arity >= 0);
+    assert(arity <= 6);
+    arity++;
+
+    if (state->type_stack.count < arity) {
+        porth_string_builder builder = {0};
+
+        for (int i = 0; i < arity && i < state->type_stack.count; i++) {
+            if (i > 0) porth_string_builder_append(&builder, ", ");
+            porth_string_builder_append(
+                &builder,
+                porth_datatype_to_cstring(state->type_stack.items[state->type_stack.count - i - 1])
+            );
+        }
+        porth_string_view found_types = porth_string_builder_as_view(&builder);
+        porth_vector_destroy(&builder);
+
+        porth_diagnostic error = {
+            .kind = PORTH_ERROR,
+            .location = location,
+            .message = porth_temp_sprintf(
+                "Expected the stack to contain at least %d values, but found only %ld of types (%.*s).\n",
+                arity,
+                state->type_stack.count,
+                PORTH_SV_EXPAND(found_types)
+            ),
+        };
+        porth_diagnostic_push(&state->program->diagnostics, error);
+
+        return;
+    }
+
+    bool valid_stack = true;
+    for (int i = 0; i < arity && valid_stack; i++) {
+        porth_datatype existing_datatype = state->type_stack.items[state->type_stack.count - i - 1];
+        if (!((i == arity - 1 && existing_datatype == PORTH_DATATYPE_INT) || (existing_datatype == PORTH_DATATYPE_INT || existing_datatype == PORTH_DATATYPE_PTR))) {
+            valid_stack = false;
+        }
+    }
+
+    if (!valid_stack) {
+        porth_string_builder builder = {0};
+
+        porth_string_builder_append(&builder, "The stack does not contain values of the correct types. The top type must be `int` and the remaining must be either `int` or `ptr`. Instead, found the types (");
+        {
+            for (int i = 0; i < arity && i < state->type_stack.count; i++) {
+                if (i > 0) porth_string_builder_append(&builder, ", ");
+                porth_string_builder_append(
+                    &builder,
+                    porth_datatype_to_cstring(state->type_stack.items[state->type_stack.count - i - 1])
+                );
+            }
+        }
+        porth_string_builder_append(&builder, ").");
+
+        porth_string_view message = porth_string_builder_as_view(&builder);
+        porth_vector_destroy(&builder);
+
+        porth_diagnostic error = {.kind = PORTH_ERROR, .location = location, .message = message};
+        porth_diagnostic_push(&state->program->diagnostics, error);
+    }
+}
+
+#define ALLPATTERNS_M  (PORTH_DATATYPE_COUNT)
 #define ALLPATTERNS2_M (PORTH_DATATYPE_COUNT * PORTH_DATATYPE_COUNT)
 #define ALLPATTERNS3_M (PORTH_DATATYPE_COUNT * PORTH_DATATYPE_COUNT * PORTH_DATATYPE_COUNT)
 
@@ -791,29 +863,23 @@ static void porth_compile_into(porth_compile_state* state, porth_source* source,
     if (!allpatterns_initialized) {
         allpatterns_initialized = true;
 
-        if (allpatterns[0][0] == 0) {
-            for (int i = 0; i < PORTH_DATATYPE_COUNT; i++) {
-                allpatterns[i][0] = (porth_datatype)i;
+        for (int i = 0; i < PORTH_DATATYPE_COUNT; i++) {
+            allpatterns[i][0] = (porth_datatype)i;
+        }
+
+        for (int i = 0; i < PORTH_DATATYPE_COUNT; i++) {
+            for (int j = 0; j < PORTH_DATATYPE_COUNT; j++) {
+                allpatterns2[i * PORTH_DATATYPE_COUNT + j][0] = (porth_datatype)i;
+                allpatterns2[i * PORTH_DATATYPE_COUNT + j][1] = (porth_datatype)j;
             }
         }
 
-        if (allpatterns2[0][0] == 0) {
-            for (int i = 0; i < PORTH_DATATYPE_COUNT; i++) {
-                for (int j = 0; j < PORTH_DATATYPE_COUNT; j++) {
-                    allpatterns2[i * PORTH_DATATYPE_COUNT + j][0] = (porth_datatype)i;
-                    allpatterns2[i * PORTH_DATATYPE_COUNT + j][1] = (porth_datatype)j;
-                }
-            }
-        }
-
-        if (allpatterns3[0][0] == 0) {
-            for (int i = 0; i < PORTH_DATATYPE_COUNT; i++) {
-                for (int j = 0; j < PORTH_DATATYPE_COUNT; j++) {
-                    for (int k = 0; k < PORTH_DATATYPE_COUNT; k++) {
-                        allpatterns3[i * PORTH_DATATYPE_COUNT * PORTH_DATATYPE_COUNT + j * PORTH_DATATYPE_COUNT + k][0] = (porth_datatype)i;
-                        allpatterns3[i * PORTH_DATATYPE_COUNT * PORTH_DATATYPE_COUNT + j * PORTH_DATATYPE_COUNT + k][1] = (porth_datatype)j;
-                        allpatterns3[i * PORTH_DATATYPE_COUNT * PORTH_DATATYPE_COUNT + j * PORTH_DATATYPE_COUNT + k][2] = (porth_datatype)j;
-                    }
+        for (int i = 0; i < PORTH_DATATYPE_COUNT; i++) {
+            for (int j = 0; j < PORTH_DATATYPE_COUNT; j++) {
+                for (int k = 0; k < PORTH_DATATYPE_COUNT; k++) {
+                    allpatterns3[i * PORTH_DATATYPE_COUNT * PORTH_DATATYPE_COUNT + j * PORTH_DATATYPE_COUNT + k][0] = (porth_datatype)i;
+                    allpatterns3[i * PORTH_DATATYPE_COUNT * PORTH_DATATYPE_COUNT + j * PORTH_DATATYPE_COUNT + k][1] = (porth_datatype)j;
+                    allpatterns3[i * PORTH_DATATYPE_COUNT * PORTH_DATATYPE_COUNT + j * PORTH_DATATYPE_COUNT + k][2] = (porth_datatype)j;
                 }
             }
         }
@@ -942,14 +1008,7 @@ static void porth_compile_into(porth_compile_state* state, porth_source* source,
                         } break;
 
                         case PORTH_INTRINSIC_PRINT: {
-                            porth_datatype patterns[4][1] = {
-                                {PORTH_DATATYPE_INT},
-                                //{PORTH_DATATYPE_FLOAT},
-                                {PORTH_DATATYPE_BOOL},
-                                {PORTH_DATATYPE_PTR},
-                                {PORTH_DATATYPE_ADDR},
-                            };
-                            porth_discard porth_expect_type_patterns(state, parser.token.location, 4, 1, patterns, 1);
+                            porth_discard porth_expect_type_patterns(state, parser.token.location, ALLPATTERNS_M, 1, allpatterns, 1);
                         } break;
 
                         case PORTH_INTRINSIC_DUP: {
@@ -976,6 +1035,15 @@ static void porth_compile_into(porth_compile_state* state, porth_source* source,
                             porth_vector_push(&state->type_stack, allpatterns[pattern][0]);
                         } break;
 
+                        case PORTH_INTRINSIC_OVER: {
+                            int64_t pattern = porth_expect_type_patterns(state, parser.token.location, ALLPATTERNS2_M, 2, allpatterns2, 1);
+                            assert(pattern >= 0);
+                            assert(pattern < ALLPATTERNS2_M);
+                            porth_vector_push(&state->type_stack, allpatterns2[pattern][0]);
+                            porth_vector_push(&state->type_stack, allpatterns2[pattern][1]);
+                            porth_vector_push(&state->type_stack, allpatterns2[pattern][0]);
+                        } break;
+
                         case PORTH_INTRINSIC_ROT: {
                             int64_t pattern = porth_expect_type_patterns(state, parser.token.location, ALLPATTERNS3_M, 1, allpatterns3, 1);
                             assert(pattern >= 0);
@@ -983,6 +1051,72 @@ static void porth_compile_into(porth_compile_state* state, porth_source* source,
                             porth_vector_push(&state->type_stack, allpatterns3[pattern][1]);
                             porth_vector_push(&state->type_stack, allpatterns3[pattern][2]);
                             porth_vector_push(&state->type_stack, allpatterns3[pattern][0]);
+                        } break;
+
+                        case PORTH_INTRINSIC_LOAD8:
+                        case PORTH_INTRINSIC_LOAD16:
+                        case PORTH_INTRINSIC_LOAD32:
+                        case PORTH_INTRINSIC_LOAD64: {
+                            porth_datatype patterns[1][2] = {
+                                {PORTH_DATATYPE_PTR},
+                            };
+                            porth_discard porth_expect_type_patterns(state, parser.token.location, 1, 1, patterns, 1);
+                            porth_vector_push(&state->type_stack, PORTH_DATATYPE_INT);
+                        } break;
+
+                        case PORTH_INTRINSIC_STORE8:
+                        case PORTH_INTRINSIC_STORE16:
+                        case PORTH_INTRINSIC_STORE32:
+                        case PORTH_INTRINSIC_STORE64: {
+                            porth_datatype patterns[1][2] = {
+                                {PORTH_DATATYPE_INT, PORTH_DATATYPE_PTR},
+                            };
+                            porth_discard porth_expect_type_patterns(state, parser.token.location, 1, 2, patterns, 1);
+                        } break;
+
+                        case PORTH_INTRINSIC_CAST_INT: {
+                            porth_discard porth_expect_type_patterns(state, parser.token.location, ALLPATTERNS_M, 1, allpatterns, 1);
+                            porth_vector_push(&state->type_stack, PORTH_DATATYPE_INT);
+                        } break;
+
+                        case PORTH_INTRINSIC_CAST_FLOAT: {
+                            porth_discard porth_expect_type_patterns(state, parser.token.location, ALLPATTERNS_M, 1, allpatterns, 1);
+                            porth_vector_push(&state->type_stack, PORTH_DATATYPE_FLOAT);
+                        } break;
+
+                        case PORTH_INTRINSIC_CAST_BOOL: {
+                            porth_discard porth_expect_type_patterns(state, parser.token.location, ALLPATTERNS_M, 1, allpatterns, 1);
+                            porth_vector_push(&state->type_stack, PORTH_DATATYPE_BOOL);
+                        } break;
+
+                        case PORTH_INTRINSIC_CAST_PTR: {
+                            porth_discard porth_expect_type_patterns(state, parser.token.location, ALLPATTERNS_M, 1, allpatterns, 1);
+                            porth_vector_push(&state->type_stack, PORTH_DATATYPE_PTR);
+                        } break;
+
+                        case PORTH_INTRINSIC_CAST_ADDR: {
+                            porth_discard porth_expect_type_patterns(state, parser.token.location, ALLPATTERNS_M, 1, allpatterns, 1);
+                            porth_vector_push(&state->type_stack, PORTH_DATATYPE_ADDR);
+                        } break;
+
+                        case PORTH_INTRINSIC_ARGC: {
+                            porth_vector_push(&state->type_stack, PORTH_DATATYPE_INT);
+                        } break;
+
+                        case PORTH_INTRINSIC_ARGV:
+                        case PORTH_INTRINSIC_ENVP: {
+                            porth_vector_push(&state->type_stack, PORTH_DATATYPE_PTR);
+                        } break;
+
+                        case PORTH_INTRINSIC_SYSCALL0:
+                        case PORTH_INTRINSIC_SYSCALL1:
+                        case PORTH_INTRINSIC_SYSCALL2:
+                        case PORTH_INTRINSIC_SYSCALL3:
+                        case PORTH_INTRINSIC_SYSCALL4:
+                        case PORTH_INTRINSIC_SYSCALL5:
+                        case PORTH_INTRINSIC_SYSCALL6: {
+                            porth_expect_syscall_types(state, parser.token.location, (int)(intrinsic - PORTH_INTRINSIC_SYSCALL0));
+                            porth_vector_push(&state->type_stack, PORTH_DATATYPE_INT);
                         } break;
                     }
                 } else {
@@ -1030,6 +1164,49 @@ void porth_program_destroy(porth_program* program) {
     free(program);
 }
 
+static void porth_interpreter_runtime_syscall_typecheck(
+    porth_location location,
+    porth_value* arguments,
+    porth_datatype* argument_types,
+    int arity
+) {
+    bool correct = true;
+    for (int i = 0; i < arity && correct; i++) {
+        porth_value argument = arguments[i];
+        porth_datatype argument_type = argument_types[i];
+        if (argument.datatype != argument_type) {
+            correct = false;
+        }
+    }
+
+    if (!correct) {
+        porth_string_builder builder = {0};
+
+        porth_string_builder_append(&builder, "The stack does not contain values of the correct types for the requested syscall. The types (");
+        {
+            for (int i = 0; i < arity; i++) {
+                if (i > 0) porth_string_builder_append(&builder, ", ");
+                porth_string_builder_append(&builder, porth_datatype_to_cstring(arguments[i].datatype));
+            }
+        }
+        porth_string_builder_append(&builder, ") do not match the expected types ");
+        {
+            for (int i = 0; i < arity; i++) {
+                if (i > 0) porth_string_builder_append(&builder, ", ");
+                porth_string_builder_append(&builder, porth_datatype_to_cstring(argument_types[i]));
+            }
+        }
+        porth_string_builder_append(&builder, ").");
+
+        porth_string_view message = porth_string_builder_as_view(&builder);
+        porth_vector_destroy(&builder);
+
+        porth_diagnostic error = {.kind = PORTH_ERROR, .location = location, .message = message};
+        porth_diagnostic_report(error);
+        exit(1);
+    }
+}
+
 void porth_program_interpret(porth_program* program) {
     porth_values stack = {0};
 
@@ -1062,13 +1239,13 @@ void porth_program_interpret(porth_program* program) {
                         if (rhs.datatype == PORTH_DATATYPE_INT || rhs.datatype == PORTH_DATATYPE_PTR) {
                             porth_vector_push(
                                 &stack,
-                                ((porth_value){.datatype = PORTH_DATATYPE_BOOL, .integer_value = lhs.integer_value + rhs.integer_value})
+                                ((porth_value){.datatype = rhs.datatype, .integer_value = lhs.integer_value + rhs.integer_value})
                             );
                         } else {
                             assert(rhs.datatype == PORTH_DATATYPE_FLOAT);
                             porth_vector_push(
                                 &stack,
-                                ((porth_value){.datatype = PORTH_DATATYPE_BOOL, .float_value = lhs.float_value + rhs.float_value})
+                                ((porth_value){.datatype = PORTH_DATATYPE_FLOAT, .float_value = lhs.float_value + rhs.float_value})
                             );
                         }
                     } break;
@@ -1080,13 +1257,13 @@ void porth_program_interpret(porth_program* program) {
                         if (rhs.datatype == PORTH_DATATYPE_INT || rhs.datatype == PORTH_DATATYPE_PTR) {
                             porth_vector_push(
                                 &stack,
-                                ((porth_value){.datatype = PORTH_DATATYPE_BOOL, .integer_value = lhs.integer_value - rhs.integer_value})
+                                ((porth_value){.datatype = rhs.datatype, .integer_value = lhs.integer_value - rhs.integer_value})
                             );
                         } else {
                             assert(rhs.datatype == PORTH_DATATYPE_FLOAT);
                             porth_vector_push(
                                 &stack,
-                                ((porth_value){.datatype = PORTH_DATATYPE_BOOL, .float_value = lhs.float_value - rhs.float_value})
+                                ((porth_value){.datatype = PORTH_DATATYPE_FLOAT, .float_value = lhs.float_value - rhs.float_value})
                             );
                         }
                     } break;
@@ -1098,13 +1275,13 @@ void porth_program_interpret(porth_program* program) {
                         if (rhs.datatype == PORTH_DATATYPE_INT || rhs.datatype == PORTH_DATATYPE_PTR) {
                             porth_vector_push(
                                 &stack,
-                                ((porth_value){.datatype = PORTH_DATATYPE_BOOL, .integer_value = lhs.integer_value * rhs.integer_value})
+                                ((porth_value){.datatype = rhs.datatype, .integer_value = lhs.integer_value * rhs.integer_value})
                             );
                         } else {
                             assert(rhs.datatype == PORTH_DATATYPE_FLOAT);
                             porth_vector_push(
                                 &stack,
-                                ((porth_value){.datatype = PORTH_DATATYPE_BOOL, .float_value = lhs.float_value * rhs.float_value})
+                                ((porth_value){.datatype = PORTH_DATATYPE_FLOAT, .float_value = lhs.float_value * rhs.float_value})
                             );
                         }
                     } break;
@@ -1113,6 +1290,7 @@ void porth_program_interpret(porth_program* program) {
                         porth_value rhs = porth_vector_pop(&stack);
                         porth_value lhs = porth_vector_pop(&stack);
                         assert(rhs.datatype == lhs.datatype);
+                        assert(rhs.datatype == PORTH_DATATYPE_INT);
                         porth_vector_push(
                             &stack,
                             ((porth_value){.datatype = PORTH_DATATYPE_INT, .integer_value = lhs.integer_value / rhs.integer_value})
@@ -1131,7 +1309,7 @@ void porth_program_interpret(porth_program* program) {
                             porth_vector_push(
                                 &stack,
                                 ((porth_value){
-                                    .datatype = PORTH_DATATYPE_BOOL,
+                                    .datatype = rhs.datatype,
                                     .integer_value = lhs.integer_value < rhs.integer_value ? rhs.integer_value : lhs.integer_value
                                 })
                             );
@@ -1140,7 +1318,7 @@ void porth_program_interpret(porth_program* program) {
                             porth_vector_push(
                                 &stack,
                                 ((porth_value){
-                                    .datatype = PORTH_DATATYPE_BOOL,
+                                    .datatype = PORTH_DATATYPE_FLOAT,
                                     .float_value = lhs.float_value < rhs.float_value ? rhs.float_value : lhs.float_value
                                 })
                             );
@@ -1336,7 +1514,40 @@ void porth_program_interpret(porth_program* program) {
 
                     case PORTH_INTRINSIC_PRINT: {
                         porth_value value = porth_vector_pop(&stack);
-                        fprintf(stdout, "%ld\n", value.integer_value);
+                        if (value.datatype == PORTH_DATATYPE_FLOAT) {
+                            fprintf(stdout, "%f\n", value.float_value);
+                        } else if (value.datatype == PORTH_DATATYPE_PTR || value.datatype == PORTH_DATATYPE_ADDR) {
+                            fprintf(stdout, "%p\n", (void*)value.integer_value);
+                        } else {
+                            fprintf(stdout, "%ld\n", value.integer_value);
+                        }
+                    } break;
+
+                    case PORTH_INTRINSIC_SYSCALL0:
+                    case PORTH_INTRINSIC_SYSCALL1:
+                    case PORTH_INTRINSIC_SYSCALL2:
+                    case PORTH_INTRINSIC_SYSCALL3:
+                    case PORTH_INTRINSIC_SYSCALL4:
+                    case PORTH_INTRINSIC_SYSCALL5:
+                    case PORTH_INTRINSIC_SYSCALL6: {
+                        int arity = (int)(inst.operand - PORTH_INTRINSIC_SYSCALL0);
+
+                        porth_value syscall_number = porth_vector_pop(&stack);
+                        assert(syscall_number.datatype == PORTH_DATATYPE_INT);
+
+                        porth_value syscall_args[6] = {0};
+                        for (int i = 0; i < arity; i++) {
+                            syscall_args[arity - i - 1] = porth_vector_pop(&stack);
+                        }
+
+                        switch (syscall_number.integer_value) {
+                            case 60: { // exit
+                                porth_datatype expected_types[1] = {PORTH_DATATYPE_INT};
+                                porth_interpreter_runtime_syscall_typecheck(inst.token.location, syscall_args, expected_types, 1);
+                                exit(syscall_args[0].integer_value);
+                                assert(false && "unreachable");
+                            } break;
+                        }
                     } break;
                 }
             } break;
