@@ -55,12 +55,15 @@ int main(int argc, char** argv) {
         goto exit_main;
     }
 
+    porth_diagnostics_report(&program->diagnostics);
+    //porth_instructions_dump(&program->instructions);
+
     if (program->diagnostics.error_count > 0) {
         exit_code = 1;
+        goto exit_main;
     }
 
-    porth_diagnostics_report(&program->diagnostics);
-    porth_instructions_dump(&program->instructions);
+    porth_program_interpret(program);
 
 exit_main:;
     porth_program_destroy(program);

@@ -145,9 +145,11 @@ typedef struct porth_token {
 
 typedef enum porth_datatype {
     PORTH_DATATYPE_INT,
+    PORTH_DATATYPE_FLOAT,
     PORTH_DATATYPE_PTR,
     PORTH_DATATYPE_BOOL,
     PORTH_DATATYPE_ADDR,
+    PORTH_DATATYPE_COUNT,
 } porth_datatype;
 
 porth_vector_typedef(porth_datatypes, porth_datatype);
